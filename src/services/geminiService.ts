@@ -1,5 +1,5 @@
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
-const API_KEY = "AIzaSyBY0XvuH5k84TtMr3IN1OgjBWnciYO9_cc";
+const API_KEY = "AIzaSyAhM04RjZpk9olc6nZDhbvP6vBBlRdd72s";
 
 export interface InterpretationRequest {
   cards: Array<{
