@@ -283,9 +283,15 @@ export type AgentWaitStatus =
   | { state: 'timeout' };
 
 /**
- * Sends a prompt to the authorized agent and waits for the response.
- * Copies prompt to clipboard, opens agent in new tab, then watches the clipboard
- * for the user's copied response. Returns the response text.
+ * Unified flow: copies prompt to clipboard, opens agent with prompt encoded in URL (?q=...),
+ * then watches the clipboard for the user's copied response. Returns the response text.
+ *
+ * Steps for the user:
+ * 1. Click "Enviar ao ChatGPT" — prompt is copied + agent opens with prompt pre-filled in URL
+ * 2. In the agent tab: press Enter (or click send) to submit the prompt
+ * 3. Wait for the agent to generate the response
+ * 4. Select and copy the response (Ctrl+C / Cmd+C)
+ * 5. Return to the tarot tab — the response is captured from clipboard automatically
  */
 export const sendToAgentAndWait = async (
   agentType: AgentType,
@@ -298,15 +304,15 @@ export const sendToAgentAndWait = async (
     return '';
   }
 
-  // Copy prompt to clipboard
+  // Copy prompt to clipboard so the user has it as backup
   try {
     await navigator.clipboard.writeText(prompt);
   } catch {
     // Clipboard write may fail in non-secure contexts
   }
 
-  // Open agent in new tab
-  window.open(agent.url, '_blank', 'noopener,noreferrer');
+  // Open agent with prompt encoded in URL (?q=...)
+  sendViaUrl(agentType, prompt);
 
   onStatus?.({ state: 'waiting' });
 
