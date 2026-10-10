@@ -1,0 +1,36 @@
+{
+  "name": "Tarot de Thoth",
+  "short_name": "Tarot Thoth",
+  "description": "Sistema completo do Tarot de Thoth com os 78 arcanos conforme apresentado por Aleister Crowley",
+  "theme_color": "#1e1b4b",
+  "background_color": "#1e1b4b",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "pt-BR",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "pwa-icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "pwa-icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "pwa-icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "pwa-icons/apple-touch-icon-180x180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["education", "lifestyle", "spirituality"]
+}
