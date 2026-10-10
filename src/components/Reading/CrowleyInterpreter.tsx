@@ -183,12 +183,13 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
           </div>
           <div className="p-3 bg-indigo-950/50 rounded-md border border-purple-700/30">
             <p className="text-purple-300 text-xs mb-2">
-              O prompt foi copiado e o <strong className="text-yellow-300">{agentInfo.name}</strong> foi aberto em nova aba.
+              O prompt foi copiado e o <strong className="text-yellow-300">{agentInfo.name}</strong> foi aberto com o prompt na URL.
             </p>
             <ol className="text-purple-400 text-xs space-y-1 list-decimal pl-4 mb-3">
-              <li>Cole o prompt no {agentInfo.name} (Ctrl+V) e aguarde a resposta.</li>
+              <li>No {agentInfo.name}: o prompt ja esta na caixa de conversa. Pressione Enter para enviar.</li>
+              <li>Aguarde o {agentInfo.name} gerar a resposta.</li>
               <li>Selecione e copie a resposta gerada (Ctrl+C).</li>
-              <li>Volte para esta aba do Tarot — a resposta será capturada automaticamente.</li>
+              <li>Volte para esta aba do Tarot — a resposta sera capturada automaticamente e lida em voz alta.</li>
             </ol>
             <div className="flex gap-2 flex-wrap">
               <button
