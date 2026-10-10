@@ -1,0 +1,73 @@
+/* CardAnimation.css */
+/* Styling for floating card animations */
+
+.floating-card {
+  width: 120px;
+  height: auto;
+  pointer-events: none;
+  will-change: transform;
+  transition: transform 0.5s ease-out;
+}
+
+/* Different animation patterns for varied movement */
+.animate-float-1 {
+  animation: float1 15s ease-in-out infinite alternate;
+}
+
+.animate-float-2 {
+  animation: float2 18s ease-in-out infinite alternate;
+}
+
+.animate-float-3 {
+  animation: float3 22s ease-in-out infinite alternate;
+}
+
+/* Animation keyframes for different floating patterns */
+@keyframes float1 {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--rotate)) scale(var(--scale));
+  }
+  50% {
+    transform: translate(-52%, -48%) rotate(calc(var(--rotate) + 5deg)) scale(calc(var(--scale) * 1.05));
+  }
+  100% {
+    transform: translate(-48%, -52%) rotate(calc(var(--rotate) - 5deg)) scale(var(--scale));
+  }
+}
+
+@keyframes float2 {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--rotate)) scale(var(--scale));
+  }
+  33% {
+    transform: translate(-52%, -51%) rotate(calc(var(--rotate) + 3deg)) scale(calc(var(--scale) * 0.98));
+  }
+  66% {
+    transform: translate(-48%, -49%) rotate(calc(var(--rotate) - 2deg)) scale(calc(var(--scale) * 1.02));
+  }
+  100% {
+    transform: translate(-50%, -48%) rotate(var(--rotate)) scale(var(--scale));
+  }
+}
+
+@keyframes float3 {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--rotate)) scale(var(--scale));
+  }
+  25% {
+    transform: translate(-51%, -48%) rotate(calc(var(--rotate) - 4deg)) scale(calc(var(--scale) * 1.03));
+  }
+  75% {
+    transform: translate(-49%, -52%) rotate(calc(var(--rotate) + 4deg)) scale(calc(var(--scale) * 0.97));
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(var(--rotate)) scale(var(--scale));
+  }
+}
+
+/* Media query for smaller screens - make cards smaller */
+@media (max-width: 768px) {
+  .floating-card {
+    width: 80px;
+  }
+}

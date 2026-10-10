@@ -1,0 +1,256 @@
+/* Card layout improvements for all devices */
+.tarot-card-container {
+  margin-left: auto;
+  margin-right: auto;
+  display: block;
+}
+
+/* Mobile improvements for card }
+
+/* Improved grid layout for catalog */
+.catalog-container {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: 0 8px;
+}
+
+@media (min-width: 640px) {
+  .catalog-container {
+    padding: 0 16px;
+  }
+}
+
+/* Force cards to display in a single centered column on mobile */
+@media (max-width: 640px) {
+  .card-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+  
+  .card-grid > div {
+    width: 100% !important;
+    max-width: 220px !important;
+    margin-bottom: 24px !important;
+  }
+}
+youts */
+@media (max-width: 640px) {
+  .grid-cols-1 > div {
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 260px;
+    width: 100%;
+  }
+  
+  /* Add a specific class for card grids */
+  .card-grid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  /* Center cards in the grid */
+  .card-grid > div {
+    width: 220px !important;
+    margin: 0 auto 1.5rem;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.4s ease-out forwards;
+}
+
+/* Base styles */
+:root {
+  --primary: #1e1b4b;
+  --primary-light: #312e81;
+  --primary-dark: #141231;
+  --accent: #fde047;
+  --accent-light: #facc15;
+  --text: #c084fc;
+  --text-light: #d8b4fe;
+  --transition-base: 0.3s ease;
+}
+
+/* Mobile optimizations */
+html {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+}
+
+body {
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+/* Custom text size for very small text */
+@layer utilities {
+  .text-2xs {
+    font-size: 0.65rem;
+    line-height: 1rem;
+  }
+}
+
+/* Improved button styles for touch devices */
+@media (max-width: 640px) {
+  button, 
+  a[role="button"],
+  .button,
+  input[type="button"],
+  input[type="submit"] {
+    min-height: 44px; /* Minimum touch target size */
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  
+  /* Smaller text size for contribution buttons */
+  .contribution-section button,
+  .contribution-section a[role="button"],
+  .contribution-section .button,
+  [class*="contribution"] button,
+  [class*="contribution"] a[role="button"] {
+    font-size: 0.75rem !important; /* Smaller font size */
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    min-height: 36px !important;
+    line-height: 1.2 !important;
+  }
+  
+  /* Additional specificity for email text */
+  .contribution-section .text-2xs,
+  [class*="contribution"] .text-2xs {
+    font-size: 0.65rem !important;
+    line-height: 1rem !important;
+  }
+  
+  /* Improve spacing in card layouts */
+  .card-grid {
+    gap: 0.5rem !important;
+  }
+  
+  /* Enhance readability */
+  p, .text-sm {
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+  }
+  
+  /* Better spacing for mobile */
+  .container {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+  
+  /* Fix contribution section */
+  .contribution-section {
+    padding: 1rem !important;
+  }
+  
+  .contribution-option {
+    padding: 0.75rem !important;
+  }
+  
+.contribution-email {
+  font-size: 0.55rem !important;
+  line-height: 0.9rem !important;
+}
+}
+
+/* Smoother animations on mobile */
+@media (max-width: 640px) {
+  * {
+    transition-duration: 0.2s !important;
+  }
+  
+  /* Card layout improvements */
+  .tarot-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  }
+  
+  .tarot-card:active {
+    transform: scale(0.98) !important;
+  }
+}
+
+/* Improved scrolling */
+.scrollable-content {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+
+/* Contribution section specific improvements */
+.contribution-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .contribution-section {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  
+  .contribution-option {
+    flex: 1 1 45%;
+  }
+}
+
+/* Add specific animation for card reveals */
+@keyframes card-reveal {
+  0% {
+    transform: rotateY(90deg) scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: rotateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.card-reveal {
+  animation: card-reveal 0.5s forwards;
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Fix for modals on mobile */
+.modal-container {
+  padding: 0.5rem !important;
+  align-items: flex-start !important;
+  overflow-y: auto !important;
+}
+
+@media (min-width: 640px) {
+  .modal-container {
+    padding: 1rem !important;
+    align-items: center !important;
+  }
+}
+
+/* Better input field styling on mobile */
+input, select, textarea {
+  font-size: 16px !important; /* Prevents iOS zoom on focus */
+}
+
+@media (min-width: 640px) {
+  input, select, textarea {
+    font-size: inherit !important;
+  }
+}
