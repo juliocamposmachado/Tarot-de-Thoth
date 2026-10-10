@@ -13,6 +13,7 @@ import { ComplaintsSection } from './components/ComplaintsSection';
 import FAQSection from './components/FAQSection';
 import { Eye, Star, Sparkles, ExternalLink, Phone, BookOpen, Library } from 'lucide-react';
 import { ExplanationPage } from './components/Explanation/ExplanationPage';
+import { PermissionsModal } from './components/PermissionsModal';
 
 // Define page types for navigation
 type PageType = 'catalog' | 'reading' | 'complaints' | 'explanation';
@@ -21,6 +22,8 @@ type SplashType = 'promotional' | 'original' | 'none';
 function App() {
   const [splashState, setSplashState] = useState<SplashType>('promotional');
   const [activePage, setActivePage] = useState<PageType>('catalog');
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [showPermissions, setShowPermissions] = useState(false);
 
   return (
     <>
@@ -36,7 +39,10 @@ function App() {
         />
       )}
       {splashState === 'original' && (
-        <SplashScreen onFinished={() => setSplashState('none')} />
+        <SplashScreen onFinished={() => { setSplashState('none'); setShowPermissions(true); }} />
+      )}
+      {showPermissions && (
+        <PermissionsModal onGranted={() => { setPermissionsGranted(true); setShowPermissions(false); }} />
       )}
       <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
         <div className="container mx-auto px-4 py-8 pt-16">

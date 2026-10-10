@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { ReadingCard } from '../../types/tarot';
-import { Eye, Star, Bot, Volume2, VolumeX, Send, ExternalLink, ClipboardPaste, Check, Loader2, Clock, AlertCircle } from 'lucide-react';
-import { AgentType, AGENTS, buildCardPrompt, sendToAgentAndWait, AgentWaitStatus, CardInterpretationRequest } from '../../services/agentService';
+import { Eye, Star, Bot, Volume2, VolumeX, Send, ExternalLink, ClipboardPaste, Check, Loader2, Clock, AlertCircle, Link2 } from 'lucide-react';
+import { AgentType, AGENTS, buildCardPrompt, sendToAgentAndWait, sendViaUrl, AgentWaitStatus, CardInterpretationRequest } from '../../services/agentService';
 
 interface CardInterpretationProps {
   readingCard: ReadingCard | null;
@@ -262,6 +262,13 @@ export const CardInterpretation: React.FC<CardInterpretationProps> = ({
                   >
                     {copyStatus === 'copied' ? <Check className="w-4 h-4 mr-1" /> : <ClipboardPaste className="w-4 h-4 mr-1" />}
                     {copyStatus === 'copied' ? 'Copiado!' : 'Copiar Prompt'}
+                  </button>
+                  <button
+                    onClick={() => { const req = buildRequest(); if (req) sendViaUrl(selectedAgent, buildCardPrompt(req)); }}
+                    className="px-3 py-1.5 bg-purple-700 text-yellow-300 rounded-md hover:bg-purple-600 transition flex items-center text-xs"
+                  >
+                    <Link2 className="w-4 h-4 mr-1" />
+                    Enviar via URL
                   </button>
                   <button
                     onClick={() => window.open(agentInfo.url, '_blank', 'noopener,noreferrer')}

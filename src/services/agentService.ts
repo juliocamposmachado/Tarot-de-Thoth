@@ -168,6 +168,45 @@ export const authorizeAgent = (agentType: AgentType): void => {
 };
 
 /**
+ * Opens the agent's URL with the prompt encoded as a query parameter.
+ * ChatGPT and Gemini support ?q= / ?text= URL params that pre-fill the chat input.
+ * Copilot supports similar parameter. The user still sends the message manually.
+ */
+export const sendViaUrl = (agentType: AgentType, prompt: string): void => {
+  const agent = AGENTS[agentType];
+  if (!agent) return;
+
+  let url: string;
+  switch (agentType) {
+    case 'chatgpt':
+      url = `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+      break;
+    case 'gemini':
+      url = `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`;
+      break;
+    case 'copilot':
+      url = `https://copilot.microsoft.com/?q=${encodeURIComponent(prompt)}`;
+      break;
+    default:
+      url = agent.url;
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+/**
+ * Copies the prompt to clipboard and opens agent with prompt in URL simultaneously.
+ */
+export const copyAndSendViaUrl = async (agentType: AgentType, prompt: string): Promise<void> => {
+  try {
+    await navigator.clipboard.writeText(prompt);
+  } catch {
+    // Clipboard may fail; URL still carries the prompt
+  }
+  sendViaUrl(agentType, prompt);
+};
+
+/**
  * Starts a clipboard-watcher loop that resolves when the clipboard content changes.
  * The user copies the agent's response, returns to the tarot tab, and we detect it automatically.
  * Falls back gracefully if clipboard read permission is denied.
