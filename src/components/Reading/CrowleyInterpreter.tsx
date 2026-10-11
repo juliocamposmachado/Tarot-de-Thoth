@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ReadingCard } from '../../types/tarot';
-import { AgentType, AGENTS, buildPrompt, sendToAgentAndWait, checkBridgeHealth, waitForBridge, openChatGPTConversation, copyToClipboard, BridgeStatus, BridgeHealth, InterpretationRequest } from '../../services/agentService';
-import { Sparkles, Volume2, VolumeX, Send, Bot, Loader2, AlertCircle, RefreshCw, ClipboardPaste, ExternalLink, Check, Wifi, WifiOff } from 'lucide-react';
+import { AgentType, AGENTS, buildPrompt, sendToAgentAndWait, checkBridgeHealth, waitForBridge, launchBridgeProtocol, openChatGPTConversation, copyToClipboard, BridgeStatus, BridgeHealth, InterpretationRequest } from '../../services/agentService';
+import { Sparkles, Volume2, VolumeX, Send, Bot, Loader2, AlertCircle, RefreshCw, ClipboardPaste, ExternalLink, Check, Wifi, WifiOff, Rocket, Download } from 'lucide-react';
 
 interface Props {
   reading: {
@@ -38,6 +38,8 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
   const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetrying, setAutoRetrying] = useState(false);
+  const [launchingBridge, setLaunchingBridge] = useState(false);
+  const [launchStep, setLaunchStep] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const synthesis = window.speechSynthesis;
 
@@ -201,6 +203,32 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
     speakText(text);
   };
 
+  const handleLaunchBridge = () => {
+    setLaunchingBridge(true);
+    setLaunchStep('Solicitando inicio da ponte...');
+
+    launchBridgeProtocol((status) => {
+      if (status === 'launching') setLaunchStep('Solicitando inicio da ponte...');
+      else if (status === 'waiting') setLaunchStep('Aguardando o navegador pedir confirmacao...');
+      else if (status.startsWith('polling_')) {
+        const n = status.split('_')[1];
+        setLaunchStep(`Procurando a ponte... (tentativa ${n}/30)`);
+      } else if (status === 'online') setLaunchStep('Ponte conectada!');
+      else if (status === 'timeout') setLaunchStep('Tempo esgotado. Verifique se a ponte foi instalada.');
+    }).then((health) => {
+      setLaunchingBridge(false);
+      setBridgeHealth(health);
+      if (health && health.authenticated) {
+        handleInitialInterpretation();
+      } else if (health && !health.authenticated) {
+        setWaitState('failed');
+        setErrorMsg('Ponte iniciada mas sessao do ChatGPT nao esta autenticada. Faca login na janela aberta.');
+      } else {
+        setWaitState('bridge_offline');
+      }
+    });
+  };
+
   if (!reading || readingState !== 'complete') return null;
 
   const agentInfo = AGENTS[selectedAgent];
@@ -213,7 +241,7 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
           <Sparkles className="w-5 h-5 mr-2" />
           Interpretacao Mistica - Aleister Crowley
         </h3>
-        <div className="flex items-center gap-1.5 text-xs">
+        <div className="flex items-center gap-2 text-xs">
           {bridgeHealth ? (
             <>
               <Wifi className="w-3.5 h-3.5 text-green-400" />
@@ -223,6 +251,15 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
             <>
               <WifiOff className="w-3.5 h-3.5 text-orange-400" />
               <span className="text-orange-300">Ponte offline</span>
+              {!launchingBridge && (
+                <button
+                  onClick={handleLaunchBridge}
+                  className="ml-1 px-2 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-500 transition flex items-center gap-1"
+                >
+                  <Rocket className="w-3 h-3" />
+                  Iniciar
+                </button>
+              )}
             </>
           )}
         </div>
@@ -232,13 +269,15 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
         <span>Agente: <strong className="text-yellow-300">{agentInfo.name}</strong> via ponte local</span>
       </div>
 
-      {(isProcessing || autoRetrying) && (
+      {(isProcessing || autoRetrying || launchingBridge) && (
         <div className="mb-4 flex items-center gap-3 text-purple-200 p-4 bg-indigo-900/40 rounded-lg">
           <Loader2 className="w-5 h-5 text-yellow-400 animate-spin" />
           <span className="text-sm">
-            {autoRetrying
-              ? `Procurando ponte local... (tentativa ${retryCount}/5)`
-              : (STATUS_LABELS[waitState] || 'Processando...')}
+            {launchingBridge
+              ? launchStep
+              : autoRetrying
+                ? `Procurando ponte local... (tentativa ${retryCount}/5)`
+                : (STATUS_LABELS[waitState] || 'Processando...')}
           </span>
         </div>
       )}
@@ -247,18 +286,27 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
         <div className="mb-4 p-4 bg-indigo-900/40 rounded-lg border border-orange-700/30 space-y-4">
           <div className="flex items-center gap-3 text-orange-300">
             <WifiOff className="w-5 h-5 text-orange-400" />
-            <span className="text-sm">Ponte local nao encontrada. Para interpretacao automatica, inicie a ponte no seu computador.</span>
+            <span className="text-sm">Ponte local nao encontrada. Voce pode iniciar automaticamente ou usar o modo manual.</span>
           </div>
+
+          <button
+            onClick={handleLaunchBridge}
+            disabled={launchingBridge}
+            className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-500 transition flex items-center justify-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Rocket className="w-5 h-5" />
+            Iniciar Ponte Automaticamente
+          </button>
+
           <div className="bg-indigo-950/60 rounded-lg p-3 text-xs text-purple-300 space-y-1">
-            <p className="text-yellow-400 font-medium">Como ativar a interpretacao automatica:</p>
-            <p>1. No terminal, va para a pasta do projeto</p>
-            <p>2. Execute: <code className="bg-indigo-800 px-1 rounded">cd local_bridge && ./setup.sh</code></p>
-            <p>3. Depois execute: <code className="bg-indigo-800 px-1 rounded">./start.sh</code></p>
-            <p>4. Abra <code className="bg-indigo-800 px-1 rounded">https://127.0.0.1:5318/api/v1/health</code> no navegador</p>
-            <p>5. Aceite o certificado (Avancado &gt; Continuar) — necessario apenas uma vez</p>
-            <p>6. Na primeira vez, faca login no ChatGPT na janela que abrira</p>
-            <p>7. Volte aqui e clique em \"Verificar Ponte\"</p>
+            <p className="text-yellow-400 font-medium">Primeira vez? Instale a ponte:</p>
+            <p>1. Baixe e execute o instalador (botao abaixo)</p>
+            <p>2. No terminal: <code className="bg-indigo-800 px-1 rounded">cd local_bridge && ./setup.sh</code></p>
+            <p>3. Acesse <code className="bg-indigo-800 px-1 rounded">https://127.0.0.1:5318/api/v1/health</code> e aceite o certificado</p>
+            <p>4. Faca login no ChatGPT na janela que abrira</p>
+            <p>5. Depois da instalacao, clique em \"Iniciar Ponte Automaticamente\"</p>
           </div>
+
           <div className="flex gap-2 flex-wrap">
             <button onClick={() => {
               setAutoRetrying(true);

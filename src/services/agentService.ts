@@ -364,6 +364,62 @@ export const openChatGPTConversation = () => {
 };
 
 /**
+ * Launches the local bridge via the tarot-bridge:// custom protocol.
+ * The browser will ask the user for permission to open the application.
+ * After launching, polls for the bridge to come online.
+ */
+export const launchBridgeProtocol = (
+  onStatus?: (status: string) => void
+): Promise<BridgeHealth | null> => {
+  return new Promise((resolve) => {
+    onStatus?.('launching');
+
+    // Trigger the custom protocol
+    const link = document.createElement('a');
+    link.href = 'tarot-bridge://start';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    onStatus?.('waiting');
+
+    // Poll for the bridge to come online (up to 30 attempts = ~90 seconds)
+    let attempts = 0;
+    const maxAttempts = 30;
+    const interval = setInterval(async () => {
+      attempts++;
+      onStatus?.(`polling_${attempts}`);
+
+      const health = await checkBridgeHealth();
+      if (health) {
+        clearInterval(interval);
+        onStatus?.('online');
+        resolve(health);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        onStatus?.('timeout');
+        resolve(null);
+      }
+    }, 3000);
+  });
+};
+
+/**
+ * Returns the appropriate installer script URL based on the user's OS.
+ */
+export const getInstallerInfo = (): { url: string; label: string } => {
+  const ua = navigator.userAgent;
+  if (ua.includes('Win')) {
+    return { url: '/local_bridge/setup-windows.bat', label: 'Baixar instalador (Windows)' };
+  }
+  if (ua.includes('Mac')) {
+    return { url: '/local_bridge/setup-mac.sh', label: 'Baixar instalador (macOS)' };
+  }
+  return { url: '/local_bridge/setup.sh', label: 'Baixar instalador (Linux)' };
+};
+
+/**
  * Copies text to clipboard (for manual fallback mode).
  */
 export const copyToClipboard = async (text: string): Promise<boolean> => {
