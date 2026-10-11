@@ -64,14 +64,28 @@ if [ ! -f ".env" ]; then
     echo "Arquivo .env criado a partir do exemplo."
 fi
 
+# Make all scripts executable
+chmod +x *.sh 2>/dev/null
+
+# Register the custom protocol handler (tarot-bridge://)
+echo "Registrando protocolo tarot-bridge://..."
+./install-protocol.sh 2>/dev/null || echo "Aviso: nao foi possivel registrar o protocolo automaticamente."
+
 echo ""
 echo "============================================"
 echo "  Instalacao concluida!"
 echo "============================================"
 echo ""
-echo "Para iniciar a ponte, execute:"
-echo "  ./start.sh"
+echo "  O protocolo tarot-bridge:// foi registrado."
+echo "  O site podera iniciar a ponte automaticamente."
 echo ""
-echo "Na primeira execucao, uma janela do navegador abrira."
-echo "Faca login no ChatGPT se necessario."
+echo "  Para iniciar manualmente: ./start.sh"
+echo "  Para parar: ./stop.sh"
+echo "  Para ver logs: ./logs.sh"
+echo ""
+echo "  Na primeira execucao, uma janela do navegador abrira."
+echo "  Faca login no ChatGPT se necessario."
+echo ""
+echo "  IMPORTANTE: Acesse https://127.0.0.1:5318/api/v1/health"
+echo "  no navegador e aceite o certificado (Avancado > Continuar)."
 echo "============================================"
