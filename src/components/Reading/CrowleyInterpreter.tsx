@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ReadingCard } from '../../types/tarot';
-import { AgentType, AGENTS, buildPrompt, sendToAgentAndWait, checkBridgeHealth, openChatGPTConversation, copyToClipboard, BridgeStatus, BridgeHealth, InterpretationRequest } from '../../services/agentService';
+import { AgentType, AGENTS, buildPrompt, sendToAgentAndWait, checkBridgeHealth, waitForBridge, openChatGPTConversation, copyToClipboard, BridgeStatus, BridgeHealth, InterpretationRequest } from '../../services/agentService';
 import { Sparkles, Volume2, VolumeX, Send, Bot, Loader2, AlertCircle, RefreshCw, ClipboardPaste, ExternalLink, Check, Wifi, WifiOff } from 'lucide-react';
 
 interface Props {
@@ -36,6 +36,8 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
   const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [autoRetrying, setAutoRetrying] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const synthesis = window.speechSynthesis;
 
@@ -73,10 +75,20 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
 
   useEffect(() => {
     if (reading && readingState === 'complete' && messages.length === 0 && waitState === 'idle' && !autoStarted) {
-      if (bridgeHealth) {
+      if (bridgeHealth && bridgeHealth.authenticated) {
         handleInitialInterpretation();
       } else {
-        setWaitState('bridge_offline');
+        setAutoRetrying(true);
+        setWaitState('connecting');
+        waitForBridge(5, 3000, (attempt) => setRetryCount(attempt)).then((health) => {
+          setAutoRetrying(false);
+          setBridgeHealth(health);
+          if (health && health.authenticated) {
+            handleInitialInterpretation();
+          } else {
+            setWaitState('bridge_offline');
+          }
+        });
       }
     }
     return () => { synthesis.cancel(); };
@@ -220,23 +232,47 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
         <span>Agente: <strong className="text-yellow-300">{agentInfo.name}</strong> via ponte local</span>
       </div>
 
-      {/* Processing states */}
-      {isProcessing && (
+      {(isProcessing || autoRetrying) && (
         <div className="mb-4 flex items-center gap-3 text-purple-200 p-4 bg-indigo-900/40 rounded-lg">
           <Loader2 className="w-5 h-5 text-yellow-400 animate-spin" />
-          <span className="text-sm">{STATUS_LABELS[waitState] || 'Processando...'}</span>
+          <span className="text-sm">
+            {autoRetrying
+              ? `Procurando ponte local... (tentativa ${retryCount}/5)`
+              : (STATUS_LABELS[waitState] || 'Processando...')}
+          </span>
         </div>
       )}
 
-      {/* Bridge offline */}
       {waitState === 'bridge_offline' && (
-        <div className="mb-4 p-4 bg-indigo-900/40 rounded-lg border border-orange-700/30 space-y-3">
+        <div className="mb-4 p-4 bg-indigo-900/40 rounded-lg border border-orange-700/30 space-y-4">
           <div className="flex items-center gap-3 text-orange-300">
             <WifiOff className="w-5 h-5 text-orange-400" />
-            <span className="text-sm">Ponte local nao encontrada. Inicie o servico Python no seu computador.</span>
+            <span className="text-sm">Ponte local nao encontrada. Para interpretacao automatica, inicie a ponte no seu computador.</span>
+          </div>
+          <div className="bg-indigo-950/60 rounded-lg p-3 text-xs text-purple-300 space-y-1">
+            <p className="text-yellow-400 font-medium">Como ativar a interpretacao automatica:</p>
+            <p>1. No terminal, va para a pasta do projeto</p>
+            <p>2. Execute: <code className="bg-indigo-800 px-1 rounded">cd local_bridge && ./setup.sh</code></p>
+            <p>3. Depois execute: <code className="bg-indigo-800 px-1 rounded">./start.sh</code></p>
+            <p>4. Abra <code className="bg-indigo-800 px-1 rounded">https://127.0.0.1:5318/api/v1/health</code> no navegador</p>
+            <p>5. Aceite o certificado (Avancado &gt; Continuar) — necessario apenas uma vez</p>
+            <p>6. Na primeira vez, faca login no ChatGPT na janela que abrira</p>
+            <p>7. Volte aqui e clique em \"Verificar Ponte\"</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button onClick={() => { checkBridge(); if (bridgeHealth) handleInitialInterpretation(); }} className="px-3 py-1.5 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center text-xs">
+            <button onClick={() => {
+              setAutoRetrying(true);
+              setWaitState('connecting');
+              waitForBridge(5, 3000, (a) => setRetryCount(a)).then((health) => {
+                setAutoRetrying(false);
+                setBridgeHealth(health);
+                if (health && health.authenticated) {
+                  handleInitialInterpretation();
+                } else {
+                  setWaitState('bridge_offline');
+                }
+              });
+            }} className="px-3 py-1.5 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center text-xs">
               <RefreshCw className="w-4 h-4 mr-1" />
               Verificar Ponte
             </button>

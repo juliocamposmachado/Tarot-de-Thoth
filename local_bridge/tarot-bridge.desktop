@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Tarot de Thoth - Ponte Local
+Comment=Inicia a ponte local para automacao do ChatGPT
+Exec=bash -c 'cd "%k/.." && ./start.sh; read -p "Pressione Enter para fechar..."'
+Icon=utilities-terminal
+Terminal=true
+Type=Application
+Categories=Utility;

@@ -9,7 +9,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from storage import init_db, create_reading, update_reading, get_reading, list_readings
-from prompt_validator import validate_reading_request, validate_prompt, sanitize_for_storage
+from prompt_validator import validate_reading_request, sanitize_for_storage
 from browser_worker import BrowserWorker
 
 # --- Configuration ---
@@ -31,36 +31,54 @@ POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "2"))
 HEADLESS = os.environ.get("HEADLESS", "false").lower() == "true"
 
 app = Flask(__name__)
-cors = CORS(app, origins=ALLOWED_ORIGINS, methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Content-Type", "Authorization"])
+CORS(app, origins=ALLOWED_ORIGINS, methods=["GET", "POST", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"])
 
-# --- Browser Worker ---
+# --- Async infrastructure ---
+# Playwright needs a dedicated event loop running in a background thread.
+# Flask handlers submit coroutines to it via run_coroutine_threadsafe.
 
-worker_config = {
-    "conversation_url": CONVERSATION_URL,
-    "profile_dir": PROFILE_DIR,
-    "headless": HEADLESS,
-    "generation_timeout": GENERATION_TIMEOUT,
-    "poll_interval": POLL_INTERVAL,
-}
-worker = BrowserWorker(worker_config)
-
-# Thread-safe task queue: one prompt at a time
+_bg_loop: asyncio.AbstractEventLoop = None
+_bg_thread: threading.Thread = None
+_worker: BrowserWorker = None
 _processing_lock = threading.Lock()
-_loop = None
 
 
-def get_or_create_loop():
-    global _loop
-    if _loop is None or _loop.is_closed():
-        _loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_loop)
-    return _loop
+def _bg_loop_main():
+    global _bg_loop
+    _bg_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_bg_loop)
+    _bg_loop.run_forever()
 
 
-def run_async(coro):
-    loop = get_or_create_loop()
-    return loop.run_until_complete(coro)
+def submit_async(coro):
+    """Submit a coroutine to the background event loop and block until it completes."""
+    future = asyncio.run_coroutine_threadsafe(coro, _bg_loop)
+    return future.result(timeout=300)  # 5-minute hard cap
+
+
+def get_worker() -> BrowserWorker:
+    global _worker
+    if _worker is None:
+        _worker = BrowserWorker({
+            "conversation_url": CONVERSATION_URL,
+            "profile_dir": PROFILE_DIR,
+            "headless": HEADLESS,
+            "generation_timeout": GENERATION_TIMEOUT,
+            "poll_interval": POLL_INTERVAL,
+        })
+    return _worker
+
+
+def start_bg_loop():
+    global _bg_thread
+    if _bg_thread and _bg_thread.is_alive():
+        return
+    _bg_thread = threading.Thread(target=_bg_loop_main, daemon=True)
+    _bg_thread.start()
+    # Wait for the loop to be ready
+    while _bg_loop is None:
+        import time; time.sleep(0.05)
 
 
 # --- Routes ---
@@ -68,7 +86,8 @@ def run_async(coro):
 @app.route("/api/v1/health", methods=["GET"])
 def health():
     try:
-        result = run_async(worker.ensure_session())
+        worker = get_worker()
+        result = submit_async(worker.ensure_session())
         return jsonify({
             "status": "ok",
             "bridge": True,
@@ -110,7 +129,6 @@ def create_reading_request():
         birth_date=data.get("birth_date", "")
     )
 
-    # Process in background thread
     def process():
         if not _processing_lock.acquire(blocking=False):
             update_reading(reading_id, "queued", error="Outra leitura esta em processamento. Aguarde.")
@@ -118,7 +136,8 @@ def create_reading_request():
 
         try:
             update_reading(reading_id, "opening_browser")
-            result = run_async(worker.send_prompt_and_capture(data["prompt"]))
+            worker = get_worker()
+            result = submit_async(worker.send_prompt_and_capture(data["prompt"]))
 
             if result.get("success"):
                 response_text = sanitize_for_storage(result["response"])
@@ -130,9 +149,7 @@ def create_reading_request():
         finally:
             _processing_lock.release()
 
-    thread = threading.Thread(target=process, daemon=True)
-    thread.start()
-
+    threading.Thread(target=process, daemon=True).start()
     return jsonify({"id": reading_id, "status": "queued"}), 202
 
 
@@ -166,18 +183,81 @@ def cancel_reading(reading_id: str):
 @app.route("/api/v1/shutdown", methods=["POST"])
 def shutdown():
     def stop_worker():
-        run_async(worker.stop())
+        try:
+            worker = get_worker()
+            submit_async(worker.stop())
+        except Exception:
+            pass
     threading.Thread(target=stop_worker, daemon=True).start()
     return jsonify({"status": "shutting down"})
 
 
 # --- Main ---
 
+import ssl
+import subprocess
+
+CERT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cert")
+
+
+def ensure_self_signed_cert():
+    """Generate a self-signed SSL certificate for HTTPS (needed when site is on HTTPS)."""
+    os.makedirs(CERT_DIR, exist_ok=True)
+    cert_file = os.path.join(CERT_DIR, "cert.pem")
+    key_file = os.path.join(CERT_DIR, "key.pem")
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        return cert_file, key_file
+    try:
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048",
+            "-keyout", key_file, "-out", cert_file,
+            "-days", "365", "-nodes",
+            "-subj", "/CN=127.0.0.1",
+            "-addext", "subjectAltName=IP:127.0.0.1",
+        ], check=True, capture_output=True)
+        return cert_file, key_file
+    except Exception as e:
+        print(f"Aviso: nao foi possivel gerar certificado SSL: {e}")
+        print("O servidor HTTPS nao estara disponivel. Apenas HTTP funcionara.")
+        return None, None
+
+
 if __name__ == "__main__":
     init_db()
-    print(f"Tarot de Thoth - Ponte Local")
-    print(f"Porta: {BRIDGE_PORT}")
-    print(f"Conversa: {CONVERSATION_URL}")
-    print(f"Origens permitidas: {ALLOWED_ORIGINS}")
-    print(f"Iniciando servidor...")
+    start_bg_loop()
+
+    cert_file, key_file = ensure_self_signed_cert()
+
+    print("=" * 50)
+    print("  Tarot de Thoth - Ponte Local")
+    print(f"  HTTP porta: {BRIDGE_PORT}")
+    print(f"  HTTPS porta: {BRIDGE_PORT + 1}")
+    print(f"  Conversa: {CONVERSATION_URL}")
+    print(f"  Origens permitidas: {ALLOWED_ORIGINS}")
+    print("=" * 50)
+
+    # Start HTTPS server in a background thread (for production sites on HTTPS)
+    if cert_file and key_file:
+        def run_https():
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(cert_file, key_file)
+            https_app = app
+            https_app.run(
+                host="127.0.0.1",
+                port=BRIDGE_PORT + 1,
+                debug=False,
+                threaded=True,
+                ssl_context=ctx,
+            )
+        t = threading.Thread(target=run_https, daemon=True)
+        t.start()
+        print(f"  HTTPS: https://127.0.0.1:{BRIDGE_PORT + 1}")
+    else:
+        print("  HTTPS: indisponivel (sem certificado)")
+
+    print(f"  HTTP:  http://127.0.0.1:{BRIDGE_PORT}")
+    print("  Pressione Ctrl+C para encerrar.")
+    print("=" * 50)
+
+    # Main HTTP server (for local dev)
     app.run(host="127.0.0.1", port=BRIDGE_PORT, debug=False, threaded=True)

@@ -31,10 +31,33 @@ export const AGENTS: Record<AgentType, AgentInfo> = {
 export const AGENT_LIST: AgentInfo[] = [AGENTS.chatgpt, AGENTS.copilot, AGENTS.gemini];
 
 /**
- * The local bridge URL. The site talks to a Python service running on the
- * user's machine via loopback HTTP. Default port is 5317.
+ * The local bridge URLs. The site tries HTTPS first (port 5318, for production
+ * on HTTPS sites) then HTTP (port 5317, for local dev).
  */
-export const BRIDGE_URL = 'http://127.0.0.1:5317';
+export const BRIDGE_HTTP = 'http://127.0.0.1:5317';
+export const BRIDGE_HTTPS = 'https://127.0.0.1:5318';
+export const BRIDGE_URL = BRIDGE_HTTP; // kept for compatibility
+
+let _activeBridgeUrl: string | null = null;
+
+async function findBridgeUrl(): Promise<string | null> {
+  if (_activeBridgeUrl) return _activeBridgeUrl;
+  for (const url of [BRIDGE_HTTPS, BRIDGE_HTTP]) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const r = await fetch(`${url}/api/v1/health`, { signal: controller.signal, mode: 'cors' });
+      clearTimeout(timeout);
+      if (r.ok) {
+        _activeBridgeUrl = url;
+        return url;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
 /**
  * The specific ChatGPT conversation used as the "brain."
@@ -161,26 +184,53 @@ export interface BridgeHealth {
 
 /**
  * Checks if the local bridge service is running and the ChatGPT session is active.
+ * Tries HTTPS first (for when site is on HTTPS), falls back to HTTP (for dev).
  */
 export const checkBridgeHealth = async (): Promise<BridgeHealth | null> => {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(`${BRIDGE_URL}/api/v1/health`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return null;
-    const data = await response.json();
-    return {
-      bridge: data.bridge ?? false,
-      authenticated: data.authenticated ?? false,
-      browser_ready: data.browser_ready ?? false,
-      message: data.message ?? '',
-    };
-  } catch {
-    return null;
+  const urls = [
+    `https://127.0.0.1:5318/api/v1/health`,
+    `http://127.0.0.1:5317/api/v1/health`,
+  ];
+  for (const url of urls) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(url, {
+        signal: controller.signal,
+        mode: 'cors',
+      });
+      clearTimeout(timeout);
+      if (!response.ok) continue;
+      const data = await response.json();
+      return {
+        bridge: data.bridge ?? false,
+        authenticated: data.authenticated ?? false,
+        browser_ready: data.browser_ready ?? false,
+        message: data.message ?? '',
+      };
+    } catch {
+      continue;
+    }
   }
+  return null;
+};
+
+/**
+ * Continuously polls for the bridge until it comes online or max attempts reached.
+ */
+export const waitForBridge = async (
+  maxAttempts: number = 30,
+  intervalMs: number = 3000,
+  onRetry?: (attempt: number) => void
+): Promise<BridgeHealth | null> => {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) onRetry?.(i);
+    const health = await checkBridgeHealth();
+    if (health && health.authenticated) return health;
+    if (health && !health.authenticated) return health;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return null;
 };
 
 const STATUS_TO_BRIDGE: Record<string, string> = {
@@ -205,8 +255,26 @@ export const sendToAgentAndWait = async (
 ): Promise<string> => {
   onStatus?.({ state: 'connecting' });
 
-  // Check if bridge is available
-  const health = await checkBridgeHealth();
+  // Find the active bridge URL
+  const bridgeUrl = await findBridgeUrl();
+  if (!bridgeUrl) {
+    onStatus?.({ state: 'bridge_offline' });
+    return '';
+  }
+
+  // Check if bridge is available and authenticated
+  let health: BridgeHealth | null = null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const resp = await fetch(`${bridgeUrl}/api/v1/health`, { signal: controller.signal, mode: 'cors' });
+    clearTimeout(timeout);
+    if (resp.ok) health = await resp.json();
+  } catch {
+    onStatus?.({ state: 'bridge_offline' });
+    return '';
+  }
+
   if (!health) {
     onStatus?.({ state: 'bridge_offline' });
     return '';
@@ -220,7 +288,7 @@ export const sendToAgentAndWait = async (
   // Submit the reading request
   let readingId: string;
   try {
-    const response = await fetch(`${BRIDGE_URL}/api/v1/readings`, {
+    const response = await fetch(`${bridgeUrl}/api/v1/readings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -252,7 +320,7 @@ export const sendToAgentAndWait = async (
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     try {
-      const response = await fetch(`${BRIDGE_URL}/api/v1/readings/${readingId}`);
+      const response = await fetch(`${bridgeUrl}/api/v1/readings/${readingId}`, { mode: 'cors' });
       if (!response.ok) continue;
 
       const data = await response.json();
