@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ReadingCard } from '../../types/tarot';
-import { AgentType, AGENTS, AGENT_LIST, buildPrompt, sendToAgentAndWait, sendViaUrl, AgentWaitStatus, InterpretationRequest } from '../../services/agentService';
-import { Sparkles, Volume2, VolumeX, Send, ClipboardPaste, ExternalLink, Bot, Check, Loader2, Clock, AlertCircle, Link2 } from 'lucide-react';
+import { AgentType, AGENTS, buildPrompt, sendToAgentAndWait, checkBridgeHealth, openChatGPTConversation, copyToClipboard, BridgeStatus, BridgeHealth, InterpretationRequest } from '../../services/agentService';
+import { Sparkles, Volume2, VolumeX, Send, Bot, Loader2, AlertCircle, RefreshCw, ClipboardPaste, ExternalLink, Check, Wifi, WifiOff } from 'lucide-react';
 
 interface Props {
   reading: {
@@ -15,19 +15,28 @@ interface Props {
   selectedAgent: AgentType;
 }
 
-type WaitState = 'idle' | 'sending' | 'waiting' | 'received' | 'timeout' | 'manual';
+type WaitState = 'idle' | 'connecting' | 'queued' | 'opening_browser' | 'sending' | 'generating' | 'completed' | 'failed' | 'bridge_offline' | 'manual';
+
+const STATUS_LABELS: Record<string, string> = {
+  connecting: 'Conectando a ponte local...',
+  queued: 'Leitura na fila...',
+  opening_browser: 'Abrindo conversa do ChatGPT...',
+  sending: 'Enviando pergunta ao ChatGPT...',
+  generating: 'Aguardando geracao da resposta...',
+};
 
 export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, selectedAgent }) => {
   const [messages, setMessages] = useState<Array<{type: 'user' | 'crowley', text: string}>>([]);
   const [inputText, setInputText] = useState('');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [waitState, setWaitState] = useState<WaitState>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [autoStarted, setAutoStarted] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
-  const [agentOpened, setAgentOpened] = useState(false);
+  const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const lastPromptRef = useRef<string>('');
   const synthesis = window.speechSynthesis;
 
   const speakText = (text: string) => {
@@ -38,9 +47,7 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
     utterance.pitch = 0.9;
     const voices = synthesis.getVoices();
     const portugueseVoice = voices.find(voice => voice.lang.includes('pt'));
-    if (portugueseVoice) {
-      utterance.voice = portugueseVoice;
-    }
+    if (portugueseVoice) utterance.voice = portugueseVoice;
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     synthesis.speak(utterance);
@@ -55,14 +62,25 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const checkBridge = useCallback(async () => {
+    const health = await checkBridgeHealth();
+    setBridgeHealth(health);
+  }, []);
+
   useEffect(() => {
-    if (reading && readingState === 'complete' && messages.length === 0 && waitState === 'idle' && !agentOpened) {
-      handleInitialInterpretation();
+    checkBridge();
+  }, [checkBridge]);
+
+  useEffect(() => {
+    if (reading && readingState === 'complete' && messages.length === 0 && waitState === 'idle' && !autoStarted) {
+      if (bridgeHealth) {
+        handleInitialInterpretation();
+      } else {
+        setWaitState('bridge_offline');
+      }
     }
-    return () => {
-      synthesis.cancel();
-    };
-  }, [reading, readingState]);
+    return () => { synthesis.cancel(); };
+  }, [reading, readingState, bridgeHealth]);
 
   useEffect(() => {
     scrollToBottom();
@@ -75,39 +93,43 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
       isReversed: c.isReversed
     })),
     spreadType: reading!.spreadType,
-    question: qOverride || reading!.question || "Qual é a revelação do universo?",
+    question: qOverride || reading!.question || "Qual e a revelacao do universo?",
     userName: reading!.userName,
     birthDate: reading!.birthDate
   });
 
   const handleInitialInterpretation = async () => {
+    setAutoStarted(true);
     const prompt = buildPrompt(buildRequest());
-    lastPromptRef.current = prompt;
-    setAgentOpened(true);
-    setWaitState('sending');
+    setWaitState('connecting');
+    setErrorMsg('');
 
-    const response = await sendToAgentAndWait(selectedAgent, prompt, (status: AgentWaitStatus) => {
-      if (status.state === 'waiting' || status.state === 'checking') setWaitState('waiting');
-    });
+    const response = await sendToAgentAndWait(
+      selectedAgent,
+      prompt,
+      (status: BridgeStatus) => {
+        if (status.state === 'bridge_offline') setWaitState('bridge_offline');
+        else if (status.state === 'failed') { setWaitState('failed'); setErrorMsg(status.message); }
+        else if (status.state !== 'completed') setWaitState(status.state as WaitState);
+      },
+      {
+        question: reading!.question || '',
+        spreadType: reading!.spreadType,
+        cards: reading!.cards.map(c => ({ name: c.card.name, position: c.position.name, isReversed: c.isReversed })),
+        userName: reading!.userName,
+        birthDate: reading!.birthDate,
+      }
+    );
 
     if (response && response.length > 20) {
       setMessages([{ type: 'crowley', text: response }]);
-      setWaitState('received');
+      setWaitState('completed');
       speakText(response);
-    } else {
-      setWaitState('timeout');
-      setShowManualPaste(true);
+    } else if (waitState !== 'bridge_offline') {
+      setWaitState('failed');
+      if (!errorMsg) setErrorMsg('Nao foi possivel obter a interpretacao.');
     }
-  };
-
-  const handlePasteInterpretation = () => {
-    const text = pasteText.trim();
-    if (!text) return;
-    setMessages(prev => [...prev, { type: 'crowley', text }]);
-    setPasteText('');
-    setShowManualPaste(false);
-    setWaitState('received');
-    speakText(text);
+    checkBridge();
   };
 
   const handleSendFollowUp = (e: React.FormEvent) => {
@@ -120,146 +142,157 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
     stopSpeaking();
 
     const followUpPrompt = buildPrompt(buildRequest(userMessage));
-    lastPromptRef.current = followUpPrompt;
-    setWaitState('sending');
+    setWaitState('connecting');
+    setErrorMsg('');
 
-    sendToAgentAndWait(selectedAgent, followUpPrompt, (status: AgentWaitStatus) => {
-      if (status.state === 'waiting' || status.state === 'checking') setWaitState('waiting');
-    }).then((response) => {
+    sendToAgentAndWait(
+      selectedAgent,
+      followUpPrompt,
+      (status: BridgeStatus) => {
+        if (status.state === 'bridge_offline') setWaitState('bridge_offline');
+        else if (status.state === 'failed') { setWaitState('failed'); setErrorMsg(status.message); }
+        else if (status.state !== 'completed') setWaitState(status.state as WaitState);
+      },
+      {
+        question: userMessage,
+        spreadType: reading.spreadType,
+        cards: reading.cards.map(c => ({ name: c.card.name, position: c.position.name, isReversed: c.isReversed })),
+        userName: reading.userName,
+        birthDate: reading.birthDate,
+      }
+    ).then((response) => {
       if (response && response.length > 20) {
         setMessages(prev => [...prev, { type: 'crowley', text: response }]);
-        setWaitState('received');
+        setWaitState('completed');
         speakText(response);
       } else {
-        setWaitState('timeout');
-        setShowManualPaste(true);
+        setWaitState('failed');
+        if (!errorMsg) setErrorMsg('Nao foi possivel obter a resposta.');
       }
+      checkBridge();
     });
   };
 
   const handleCopyPrompt = async () => {
-    const prompt = lastPromptRef.current || buildPrompt(buildRequest(inputText || undefined));
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopyStatus('copied');
-      setTimeout(() => setCopyStatus('idle'), 2000);
-    } catch {
-      // ignore
-    }
+    const prompt = buildPrompt(buildRequest(inputText || undefined));
+    const ok = await copyToClipboard(prompt);
+    if (ok) { setCopyStatus('copied'); setTimeout(() => setCopyStatus('idle'), 2000); }
   };
 
-  if (!reading || readingState !== 'complete') {
-    return null;
-  }
+  const handlePasteInterpretation = () => {
+    const text = pasteText.trim();
+    if (!text) return;
+    setMessages(prev => [...prev, { type: 'crowley', text }]);
+    setPasteText('');
+    setShowManualPaste(false);
+    setWaitState('completed');
+    speakText(text);
+  };
+
+  if (!reading || readingState !== 'complete') return null;
 
   const agentInfo = AGENTS[selectedAgent];
-  const isWaiting = waitState === 'sending' || waitState === 'waiting';
+  const isProcessing = ['connecting', 'queued', 'opening_browser', 'sending', 'generating'].includes(waitState);
 
   return (
     <div className="bg-indigo-950/50 p-6 rounded-lg border border-purple-800/30 mt-6">
-      <h3 className="text-xl text-yellow-400 mb-2 font-medium flex items-center">
-        <Sparkles className="w-5 h-5 mr-2" />
-        Interpretação Mística - Aleister Crowley
-      </h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xl text-yellow-400 font-medium flex items-center">
+          <Sparkles className="w-5 h-5 mr-2" />
+          Interpretacao Mistica - Aleister Crowley
+        </h3>
+        <div className="flex items-center gap-1.5 text-xs">
+          {bridgeHealth ? (
+            <>
+              <Wifi className="w-3.5 h-3.5 text-green-400" />
+              <span className="text-green-300">Ponte ativa</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="w-3.5 h-3.5 text-orange-400" />
+              <span className="text-orange-300">Ponte offline</span>
+            </>
+          )}
+        </div>
+      </div>
       <div className="mb-4 flex items-center gap-2 text-xs text-purple-300">
         <Bot className="w-4 h-4 text-yellow-400/70" />
-        <span>Agente de interpretação: <strong className="text-yellow-300">{agentInfo.name}</strong></span>
+        <span>Agente: <strong className="text-yellow-300">{agentInfo.name}</strong> via ponte local</span>
       </div>
 
-      {/* Sending state */}
-      {waitState === 'sending' && (
+      {/* Processing states */}
+      {isProcessing && (
         <div className="mb-4 flex items-center gap-3 text-purple-200 p-4 bg-indigo-900/40 rounded-lg">
           <Loader2 className="w-5 h-5 text-yellow-400 animate-spin" />
-          <span className="text-sm">Preparando prompt e abrindo {agentInfo.name}...</span>
+          <span className="text-sm">{STATUS_LABELS[waitState] || 'Processando...'}</span>
         </div>
       )}
 
-      {/* Waiting state - watching clipboard */}
-      {waitState === 'waiting' && (
-        <div className="mb-4 p-4 bg-indigo-900/40 rounded-lg border border-purple-700/30 space-y-3">
-          <div className="flex items-center gap-3 text-purple-200">
-            <Clock className="w-5 h-5 text-yellow-400 animate-pulse" />
-            <span className="text-sm">Aguardando resposta do {agentInfo.name}...</span>
+      {/* Bridge offline */}
+      {waitState === 'bridge_offline' && (
+        <div className="mb-4 p-4 bg-indigo-900/40 rounded-lg border border-orange-700/30 space-y-3">
+          <div className="flex items-center gap-3 text-orange-300">
+            <WifiOff className="w-5 h-5 text-orange-400" />
+            <span className="text-sm">Ponte local nao encontrada. Inicie o servico Python no seu computador.</span>
           </div>
-          <div className="p-3 bg-indigo-950/50 rounded-md border border-purple-700/30">
-            <p className="text-purple-300 text-xs mb-2">
-              O prompt foi copiado e o <strong className="text-yellow-300">{agentInfo.name}</strong> foi aberto com o prompt na URL.
-            </p>
-            <ol className="text-purple-400 text-xs space-y-1 list-decimal pl-4 mb-3">
-              <li>No {agentInfo.name}: o prompt ja esta na caixa de conversa. Pressione Enter para enviar.</li>
-              <li>Aguarde o {agentInfo.name} gerar a resposta.</li>
-              <li>Selecione e copie a resposta gerada (Ctrl+C).</li>
-              <li>Volte para esta aba do Tarot — a resposta sera capturada automaticamente e lida em voz alta.</li>
-            </ol>
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={handleCopyPrompt}
-                className="px-3 py-1.5 bg-indigo-700 text-yellow-300 rounded-md hover:bg-indigo-600 transition flex items-center text-xs"
-              >
-                {copyStatus === 'copied' ? <Check className="w-4 h-4 mr-1" /> : <ClipboardPaste className="w-4 h-4 mr-1" />}
-                {copyStatus === 'copied' ? 'Copiado!' : 'Copiar Prompt'}
-              </button>
-              <button
-                onClick={() => { if (lastPromptRef.current) sendViaUrl(selectedAgent, lastPromptRef.current); }}
-                className="px-3 py-1.5 bg-purple-700 text-yellow-300 rounded-md hover:bg-purple-600 transition flex items-center text-xs"
-              >
-                <Link2 className="w-4 h-4 mr-1" />
-                Enviar via URL
-              </button>
-              <button
-                onClick={() => window.open(agentInfo.url, '_blank', 'noopener,noreferrer')}
-                className="px-3 py-1.5 bg-indigo-700 text-yellow-300 rounded-md hover:bg-indigo-600 transition flex items-center text-xs"
-              >
-                <ExternalLink className="w-4 h-4 mr-1" />
-                Reabrir {agentInfo.name}
-              </button>
-              <button
-                onClick={() => { setWaitState('manual'); setShowManualPaste(true); }}
-                className="px-3 py-1.5 bg-indigo-700 text-purple-200 rounded-md hover:bg-indigo-600 transition text-xs"
-              >
-                Colar Manualmente
-              </button>
-            </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => { checkBridge(); if (bridgeHealth) handleInitialInterpretation(); }} className="px-3 py-1.5 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center text-xs">
+              <RefreshCw className="w-4 h-4 mr-1" />
+              Verificar Ponte
+            </button>
+            <button onClick={() => { setShowManualPaste(true); setWaitState('manual'); }} className="px-3 py-1.5 bg-indigo-700 text-yellow-300 rounded-md hover:bg-indigo-600 transition flex items-center text-xs">
+              <ClipboardPaste className="w-4 h-4 mr-1" />
+              Modo Manual
+            </button>
           </div>
         </div>
       )}
 
-      {/* Timeout state */}
-      {waitState === 'timeout' && (
+      {/* Error state */}
+      {waitState === 'failed' && (
         <div className="mb-4 p-4 bg-indigo-900/40 rounded-lg border border-orange-700/30 space-y-3">
           <div className="flex items-center gap-3 text-orange-300">
             <AlertCircle className="w-5 h-5 text-orange-400" />
-            <span className="text-sm">Tempo esgotado aguardando resposta automática.</span>
+            <span className="text-sm">{errorMsg}</span>
           </div>
-          <p className="text-purple-300 text-xs">
-            Cole a resposta manualmente abaixo, ou use o botão para reenviar.
-          </p>
+          <div className="flex gap-2">
+            <button onClick={() => { if (messages.length === 0) handleInitialInterpretation(); else setWaitState('completed'); }} className="px-4 py-2 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center text-sm">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Tentar Novamente
+            </button>
+            <button onClick={() => { setShowManualPaste(true); setWaitState('manual'); }} className="px-4 py-2 bg-indigo-700 text-purple-200 rounded-md hover:bg-indigo-600 transition text-sm">
+              Modo Manual
+            </button>
+          </div>
         </div>
       )}
 
       {/* Manual paste area */}
-      {showManualPaste && waitState !== 'received' && (
-        <div className="mb-4">
-          <label className="block text-purple-300 text-sm mb-2">Cole aqui a resposta do {agentInfo.name}:</label>
+      {showManualPaste && waitState === 'manual' && (
+        <div className="mb-4 space-y-3">
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={handleCopyPrompt} className="px-3 py-1.5 bg-indigo-700 text-yellow-300 rounded-md hover:bg-indigo-600 transition flex items-center text-xs">
+              {copyStatus === 'copied' ? <Check className="w-4 h-4 mr-1" /> : <ClipboardPaste className="w-4 h-4 mr-1" />}
+              {copyStatus === 'copied' ? 'Copiado!' : 'Copiar Prompt'}
+            </button>
+            <button onClick={openChatGPTConversation} className="px-3 py-1.5 bg-purple-700 text-yellow-300 rounded-md hover:bg-purple-600 transition flex items-center text-xs">
+              <ExternalLink className="w-4 h-4 mr-1" />
+              Abrir ChatGPT
+            </button>
+          </div>
+          <p className="text-purple-400 text-xs">Cole o prompt no ChatGPT, envie, copie a resposta e cole abaixo.</p>
           <textarea
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
-            placeholder="Cole a interpretação recebida do agente..."
+            placeholder="Cole a interpretacao recebida do ChatGPT..."
             className="w-full p-3 rounded-md bg-indigo-900 border border-purple-700 text-purple-100 text-sm min-h-[120px] focus:outline-none focus:border-yellow-500"
           />
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={handlePasteInterpretation}
-              disabled={!pasteText.trim()}
-              className="px-4 py-2 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+          <div className="flex gap-2">
+            <button onClick={handlePasteInterpretation} disabled={!pasteText.trim()} className="px-4 py-2 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
               <Send className="w-4 h-4 mr-1" />
               Trazer Resposta
             </button>
-            <button
-              onClick={() => { setShowManualPaste(false); setWaitState('idle'); }}
-              className="px-4 py-2 bg-indigo-800 text-purple-200 rounded-md hover:bg-indigo-700 transition text-sm"
-            >
+            <button onClick={() => { setShowManualPaste(false); setWaitState('idle'); }} className="px-4 py-2 bg-indigo-800 text-purple-200 rounded-md hover:bg-indigo-700 transition text-sm">
               Fechar
             </button>
           </div>
@@ -269,10 +302,7 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
       {/* Messages */}
       <div className="bg-indigo-900/30 rounded-lg p-4 mb-4 h-[400px] overflow-y-auto">
         {messages.map((message, index) => (
-          <div
-            key={index}
-            className={`mb-4 ${message.type === 'user' ? 'text-right' : 'text-left'}`}
-          >
+          <div key={index} className={`mb-4 ${message.type === 'user' ? 'text-right' : 'text-left'}`}>
             <div className="flex items-start gap-2">
               {message.type === 'crowley' && (
                 <button
@@ -280,20 +310,12 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
                   className="mt-2 p-1 rounded-full hover:bg-purple-700/50 transition-colors"
                   title="Ouvir mensagem"
                 >
-                  {isSpeaking ? (
-                    <VolumeX className="w-4 h-4 text-yellow-400" />
-                  ) : (
-                    <Volume2 className="w-4 h-4 text-yellow-400" />
-                  )}
+                  {isSpeaking ? <VolumeX className="w-4 h-4 text-yellow-400" /> : <Volume2 className="w-4 h-4 text-yellow-400" />}
                 </button>
               )}
-              <div
-                className={`inline-block rounded-lg p-3 max-w-[80%] whitespace-pre-wrap ${
-                  message.type === 'user'
-                    ? 'bg-purple-700/50 text-purple-100'
-                    : 'bg-indigo-800/50 text-yellow-200'
-                }`}
-              >
+              <div className={`inline-block rounded-lg p-3 max-w-[80%] whitespace-pre-wrap ${
+                message.type === 'user' ? 'bg-purple-700/50 text-purple-100' : 'bg-indigo-800/50 text-yellow-200'
+              }`}>
                 {message.text}
               </div>
             </div>
@@ -308,16 +330,16 @@ export const CrowleyInterpreter: React.FC<Props> = ({ reading, readingState, sel
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Faça uma pergunta sobre sua leitura..."
-          disabled={isWaiting}
+          placeholder="Faca uma pergunta sobre sua leitura..."
+          disabled={isProcessing}
           className="flex-1 bg-indigo-900/30 border border-purple-700/30 rounded-lg px-4 py-2 text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500 disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={isWaiting}
+          disabled={isProcessing}
           className="bg-yellow-500 text-indigo-900 px-4 py-2 rounded-lg hover:bg-yellow-400 transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isWaiting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </form>
     </div>
