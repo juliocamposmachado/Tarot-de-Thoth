@@ -30,6 +30,17 @@ export const AGENTS: Record<AgentType, AgentInfo> = {
 
 export const AGENT_LIST: AgentInfo[] = [AGENTS.chatgpt, AGENTS.copilot, AGENTS.gemini];
 
+/**
+ * The local bridge URL. The site talks to a Python service running on the
+ * user's machine via loopback HTTP. Default port is 5317.
+ */
+export const BRIDGE_URL = 'http://127.0.0.1:5317';
+
+/**
+ * The specific ChatGPT conversation used as the "brain."
+ */
+export const CHATGPT_CONVERSATION_URL = 'https://chatgpt.com/c/6acad485-8b30-83e9-81e3-8ee2b80196dd';
+
 export interface InterpretationRequest {
   cards: Array<{
     name: string;
@@ -74,36 +85,6 @@ IMPORTANTE:
 - Refira-se ao consulente pelo nome (${request.userName || 'Consulente'})
 - Use a data de nascimento do consulente (${request.birthDate || 'Não informada'}) para personalizar a leitura quando relevante
 - Mantenha as respostas em português brasileiro claro`;
-};
-
-export interface OpenAgentResult {
-  success: boolean;
-  message: string;
-  prompt: string;
-}
-
-export const openAgent = async (
-  agentType: AgentType,
-  prompt: string
-): Promise<OpenAgentResult> => {
-  const agent = AGENTS[agentType];
-  if (!agent) {
-    return { success: false, message: 'Agente não encontrado.', prompt };
-  }
-
-  try {
-    await navigator.clipboard.writeText(prompt);
-  } catch {
-    // Clipboard may fail in non-secure contexts; prompt text is still shown in UI
-  }
-
-  window.open(agent.url, '_blank', 'noopener,noreferrer');
-
-  return {
-    success: true,
-    message: `Prompt copiado para a área de transferência e ${agent.name} aberto em nova aba. Cole o texto lá, copie a resposta e cole aqui.`,
-    prompt,
-  };
 };
 
 export interface CardInterpretationRequest {
@@ -161,162 +142,167 @@ IMPORTANTE:
 - Divida em parágrafos curtos`;
 };
 
-export const authorizeAgent = (agentType: AgentType): void => {
-  const agent = AGENTS[agentType];
-  if (!agent) return;
-  window.open(agent.url, '_blank', 'noopener,noreferrer');
-};
+export type BridgeStatus =
+  | { state: 'connecting' }
+  | { state: 'queued' }
+  | { state: 'opening_browser' }
+  | { state: 'sending' }
+  | { state: 'generating' }
+  | { state: 'completed'; text: string }
+  | { state: 'failed'; message: string }
+  | { state: 'bridge_offline' };
+
+export interface BridgeHealth {
+  bridge: boolean;
+  authenticated: boolean;
+  browser_ready: boolean;
+  message: string;
+}
 
 /**
- * Opens the agent's URL with the prompt encoded as a query parameter.
- * ChatGPT and Gemini support ?q= / ?text= URL params that pre-fill the chat input.
- * Copilot supports similar parameter. The user still sends the message manually.
+ * Checks if the local bridge service is running and the ChatGPT session is active.
  */
-export const sendViaUrl = (agentType: AgentType, prompt: string): void => {
-  const agent = AGENTS[agentType];
-  if (!agent) return;
-
-  let url: string;
-  switch (agentType) {
-    case 'chatgpt':
-      url = `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
-      break;
-    case 'gemini':
-      url = `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`;
-      break;
-    case 'copilot':
-      url = `https://copilot.microsoft.com/?q=${encodeURIComponent(prompt)}`;
-      break;
-    default:
-      url = agent.url;
-  }
-
-  window.open(url, '_blank', 'noopener,noreferrer');
-};
-
-/**
- * Copies the prompt to clipboard and opens agent with prompt in URL simultaneously.
- */
-export const copyAndSendViaUrl = async (agentType: AgentType, prompt: string): Promise<void> => {
+export const checkBridgeHealth = async (): Promise<BridgeHealth | null> => {
   try {
-    await navigator.clipboard.writeText(prompt);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${BRIDGE_URL}/api/v1/health`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return {
+      bridge: data.bridge ?? false,
+      authenticated: data.authenticated ?? false,
+      browser_ready: data.browser_ready ?? false,
+      message: data.message ?? '',
+    };
   } catch {
-    // Clipboard may fail; URL still carries the prompt
+    return null;
   }
-  sendViaUrl(agentType, prompt);
+};
+
+const STATUS_TO_BRIDGE: Record<string, string> = {
+  queued: 'queued',
+  opening_browser: 'opening_browser',
+  waiting_for_chatgpt: 'sending',
+  generating: 'generating',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'failed',
 };
 
 /**
- * Starts a clipboard-watcher loop that resolves when the clipboard content changes.
- * The user copies the agent's response, returns to the tarot tab, and we detect it automatically.
- * Falls back gracefully if clipboard read permission is denied.
- */
-export const waitForAgentResponse = (
-  originalPrompt: string,
-  onStatus?: (status: AgentWaitStatus) => void
-): Promise<string> => {
-  return new Promise((resolve) => {
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let visibilityHandler: ((e: Event) => void) | null = null;
-    const originalText = originalPrompt.trim();
-    const startedAt = Date.now();
-    let resolved = false;
-
-    const cleanup = () => {
-      if (pollInterval) clearInterval(pollInterval);
-      if (timeoutId) clearTimeout(timeoutId);
-      if (visibilityHandler) {
-        document.removeEventListener('visibilitychange', visibilityHandler);
-      }
-    };
-
-    const checkClipboard = async (): Promise<void> => {
-      if (resolved) return;
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text && text.trim().length > 20 && text.trim() !== originalText && text.trim() !== startedAt.toString()) {
-          resolved = true;
-          cleanup();
-          onStatus?.({ state: 'received', text });
-          resolve(text.trim());
-        }
-      } catch {
-        // Permission denied or clipboard API unavailable; keep waiting
-      }
-    };
-
-    // Check on visibility change (user returns to the tab)
-    visibilityHandler = () => {
-      if (document.visibilityState === 'visible' && !resolved) {
-        onStatus?.({ state: 'checking' });
-        checkClipboard();
-      }
-    };
-    document.addEventListener('visibilitychange', visibilityHandler);
-
-    // Also poll every 2 seconds while visible
-    pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        checkClipboard();
-      }
-    }, 2000);
-
-    // Timeout after 10 minutes
-    timeoutId = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        onStatus?.({ state: 'timeout' });
-        resolve('');
-      }
-    }, 600000);
-
-    onStatus?.({ state: 'waiting' });
-  });
-};
-
-export type AgentWaitStatus =
-  | { state: 'waiting' }
-  | { state: 'checking' }
-  | { state: 'received'; text: string }
-  | { state: 'timeout' };
-
-/**
- * Unified flow: copies prompt to clipboard, opens agent with prompt encoded in URL (?q=...),
- * then watches the clipboard for the user's copied response. Returns the response text.
- *
- * Steps for the user:
- * 1. Click "Enviar ao ChatGPT" — prompt is copied + agent opens with prompt pre-filled in URL
- * 2. In the agent tab: press Enter (or click send) to submit the prompt
- * 3. Wait for the agent to generate the response
- * 4. Select and copy the response (Ctrl+C / Cmd+C)
- * 5. Return to the tarot tab — the response is captured from clipboard automatically
+ * Sends a prompt to the local bridge, then polls for the result.
+ * The bridge automates the ChatGPT browser interface to send and capture the response.
  */
 export const sendToAgentAndWait = async (
-  agentType: AgentType,
+  _agentType: AgentType,
   prompt: string,
-  onStatus?: (status: AgentWaitStatus) => void
+  onStatus?: (status: BridgeStatus) => void,
+  context?: { question: string; spreadType: string; cards: Array<{ name: string; position: string; isReversed: boolean }>; userName?: string; birthDate?: string }
 ): Promise<string> => {
-  const agent = AGENTS[agentType];
-  if (!agent) {
-    onStatus?.({ state: 'timeout' });
+  onStatus?.({ state: 'connecting' });
+
+  // Check if bridge is available
+  const health = await checkBridgeHealth();
+  if (!health) {
+    onStatus?.({ state: 'bridge_offline' });
     return '';
   }
 
-  // Copy prompt to clipboard so the user has it as backup
-  try {
-    await navigator.clipboard.writeText(prompt);
-  } catch {
-    // Clipboard write may fail in non-secure contexts
+  if (!health.authenticated) {
+    onStatus?.({ state: 'failed', message: 'Sessao do ChatGPT nao autenticada. Abra a ponte local e faca login.' });
+    return '';
   }
 
-  // Open agent with prompt encoded in URL (?q=...)
-  sendViaUrl(agentType, prompt);
+  // Submit the reading request
+  let readingId: string;
+  try {
+    const response = await fetch(`${BRIDGE_URL}/api/v1/readings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: context?.question || '',
+        reading_type: context?.spreadType || '',
+        cards: context?.cards || [],
+        prompt,
+        user_name: context?.userName || '',
+        birth_date: context?.birthDate || '',
+      }),
+    });
 
-  onStatus?.({ state: 'waiting' });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      onStatus?.({ state: 'failed', message: err.error || `Erro ${response.status}` });
+      return '';
+    }
 
-  // Wait for the user to copy the response back
-  const response = await waitForAgentResponse(prompt, onStatus);
-  return response;
+    const data = await response.json();
+    readingId = data.id;
+  } catch {
+    onStatus?.({ state: 'bridge_offline' });
+    return '';
+  }
+
+  // Poll for result
+  const maxAttempts = 90; // ~3 minutes at 2s intervals
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    try {
+      const response = await fetch(`${BRIDGE_URL}/api/v1/readings/${readingId}`);
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      const status = data.status as string;
+      const bridgeState = STATUS_TO_BRIDGE[status] || status;
+
+      if (bridgeState === 'completed' && data.response) {
+        onStatus?.({ state: 'completed', text: data.response });
+        return data.response;
+      }
+
+      if (bridgeState === 'failed') {
+        onStatus?.({ state: 'failed', message: data.error || 'Falha na comunicacao com o ChatGPT.' });
+        return '';
+      }
+
+      // Update UI with intermediate status
+      if (bridgeState === 'opening_browser') {
+        onStatus?.({ state: 'opening_browser' });
+      } else if (bridgeState === 'sending') {
+        onStatus?.({ state: 'sending' });
+      } else if (bridgeState === 'generating') {
+        onStatus?.({ state: 'generating' });
+      } else {
+        onStatus?.({ state: 'queued' });
+      }
+    } catch {
+      // Network blip — keep polling
+    }
+  }
+
+  onStatus?.({ state: 'failed', message: 'Tempo esgotado aguardando resposta.' });
+  return '';
+};
+
+/**
+ * Opens the ChatGPT conversation in a new tab (for manual fallback mode).
+ */
+export const openChatGPTConversation = () => {
+  window.open(CHATGPT_CONVERSATION_URL, '_blank', 'noopener,noreferrer');
+};
+
+/**
+ * Copies text to clipboard (for manual fallback mode).
+ */
+export const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 };

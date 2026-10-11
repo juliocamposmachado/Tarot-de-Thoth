@@ -14,7 +14,7 @@ import { useSound } from '../../hooks/useSound';
 import { CrowleyInterpreter } from './CrowleyInterpreter';
 import { BuyDeckModal } from '../BuyDeckModal';
 import { getUserData, saveUserData, updateUserData, UserData } from '../../services/userStorage';
-import { AgentType, AGENT_LIST, AGENTS, authorizeAgent } from '../../services/agentService';
+import { AgentType, AGENT_LIST, AGENTS } from '../../services/agentService';
 const spreadGuidance = {
   'three-card': "O método de três cartas é uma forma simples mas poderosa de obter clareza. Na visão de Crowley, representa o fluxo da energia através do tempo: passado (causa), presente (manifestação) e futuro (tendência). Concentre-se na questão enquanto as cartas são embaralhadas.",
   'celtic-cross': "A Cruz Celta, na interpretação thelêmica, representa a interação das forças em múltiplos planos. O centro é o cruzamento dos pilares da Árvore da Vida, enquanto as seis cartas ao redor mostram as influências planetárias. Visualize a questão no centro de sua consciência.",
@@ -42,7 +42,7 @@ export const ReadingPage: React.FC = () => {
   const [userName, setUserName] = useState<string>('');
   const [birthDate, setBirthDate] = useState<string>('');
   const [selectedAgent, setSelectedAgent] = useState<AgentType>('chatgpt');
-  const [agentConnected, setAgentConnected] = useState<boolean>(false);
+
   
   // Refs for animations
   const deckRef = useRef<HTMLDivElement>(null);
@@ -226,7 +226,6 @@ export const ReadingPage: React.FC = () => {
                 value={selectedAgent}
                 onChange={(e) => {
                   setSelectedAgent(e.target.value as AgentType);
-                  setAgentConnected(false);
                 }}
                 className="w-full p-3 rounded-md bg-indigo-900 border border-purple-800 text-purple-300"
               >
@@ -235,34 +234,8 @@ export const ReadingPage: React.FC = () => {
                 ))}
               </select>
               <p className="text-purple-400 text-xs mt-2 mb-3">
-                Escolha o agente de IA que você usa no dia a dia. Ele será o cérebro que interpreta suas cartas como Aleister Crowley.
+                A interpretacao sera enviada automaticamente ao ChatGPT pela ponte local no seu computador. Sem copiar, sem colar, sem API paga.
               </p>
-              
-              {!agentConnected ? (
-                <button
-                  onClick={() => {
-                    authorizeAgent(selectedAgent);
-                    setAgentConnected(true);
-                  }}
-                  className="w-full px-4 py-2.5 bg-yellow-500 text-indigo-900 rounded-md hover:bg-yellow-400 transition flex items-center justify-center text-sm font-medium"
-                >
-                  <Bot className="w-4 h-4 mr-2" />
-                  Conectar e Autorizar {AGENTS[selectedAgent].name}
-                </button>
-              ) : (
-                <div className="p-3 bg-green-900/30 border border-green-700/40 rounded-md">
-                  <p className="text-green-300 text-sm flex items-center">
-                    <Bot className="w-4 h-4 mr-2 text-green-400" />
-                    {AGENTS[selectedAgent].name} conectado! Se já estava logado, uma nova conversa foi aberta.
-                  </p>
-                  <button
-                    onClick={() => authorizeAgent(selectedAgent)}
-                    className="mt-2 text-xs text-yellow-400 hover:text-yellow-300 underline"
-                  >
-                    Reabrir {AGENTS[selectedAgent].name}
-                  </button>
-                </div>
-              )}
             </div>
           </div>
           
