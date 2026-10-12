@@ -1,0 +1,7 @@
+[functions.ai-interpret]
+verify_jwt = false
+entrypoint = "./functions/ai-interpret/index.ts"
+
+[functions.tarot-api]
+verify_jwt = false
+entrypoint = "./functions/tarot-api/index.ts"

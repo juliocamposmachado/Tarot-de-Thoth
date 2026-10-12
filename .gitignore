@@ -1,0 +1,13 @@
+
+# Dependências e builds
+node_modules/
+dist/
+dev-dist/
+
+# Variáveis e segredos
+.env
+.env.*
+!.env.example
+
+# Configurações locais
+.bolt/mcp.json
