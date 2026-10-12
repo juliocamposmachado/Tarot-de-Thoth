@@ -8,13 +8,14 @@ import { minorArcana } from '../../data/minorArcana';
 import { courtCards } from '../../data/courtCards';
 import { generateInterpretation } from '../../data/spreads';
 import { shuffle } from 'lodash';
-import { BookOpen, Save, Eye, HelpCircle, Shuffle, ImageIcon, ShoppingCart, ChevronDown, ChevronUp, Layout, Bot } from 'lucide-react';
+import { BookOpen, Save, Eye, HelpCircle, Shuffle, ImageIcon, ShoppingCart, ChevronDown, ChevronUp, Layout, Bot, Zap, Check } from 'lucide-react';
 import { TarotCardComponent } from '../TarotCard';
 import { useSound } from '../../hooks/useSound';
 import { CrowleyInterpreter } from './CrowleyInterpreter';
 import { BuyDeckModal } from '../BuyDeckModal';
 import { getUserData, saveUserData, updateUserData, UserData } from '../../services/userStorage';
-import { AgentType, AGENT_LIST, AGENTS } from '../../services/agentService';
+import { AgentType, AGENT_LIST, AGENTS, InterpretationRequest, buildPrompt } from '../../services/agentService';
+import { BridgeModal } from '../BridgeModal';
 const spreadGuidance = {
   'three-card': "O método de três cartas é uma forma simples mas poderosa de obter clareza. Na visão de Crowley, representa o fluxo da energia através do tempo: passado (causa), presente (manifestação) e futuro (tendência). Concentre-se na questão enquanto as cartas são embaralhadas.",
   'celtic-cross': "A Cruz Celta, na interpretação thelêmica, representa a interação das forças em múltiplos planos. O centro é o cruzamento dos pilares da Árvore da Vida, enquanto as seis cartas ao redor mostram as influências planetárias. Visualize a questão no centro de sua consciência.",
@@ -42,6 +43,9 @@ export const ReadingPage: React.FC = () => {
   const [userName, setUserName] = useState<string>('');
   const [birthDate, setBirthDate] = useState<string>('');
   const [selectedAgent, setSelectedAgent] = useState<AgentType>('chatgpt');
+  const [agentConnected, setAgentConnected] = useState(false);
+  const [showBridgeModal, setShowBridgeModal] = useState(false);
+  const [bridgeInterpretation, setBridgeInterpretation] = useState('');
 
   
   // Refs for animations
@@ -226,6 +230,7 @@ export const ReadingPage: React.FC = () => {
                 value={selectedAgent}
                 onChange={(e) => {
                   setSelectedAgent(e.target.value as AgentType);
+                  setAgentConnected(false);
                 }}
                 className="w-full p-3 rounded-md bg-indigo-900 border border-purple-800 text-purple-300"
               >
@@ -234,8 +239,23 @@ export const ReadingPage: React.FC = () => {
                 ))}
               </select>
               <p className="text-purple-400 text-xs mt-2 mb-3">
-                A interpretacao sera enviada automaticamente ao ChatGPT pela ponte local no seu computador. Sem copiar, sem colar, sem API paga.
+                A interpretacao sera gerada automaticamente pelo agente selecionado, sem necessidade de copiar ou colar.
               </p>
+
+              {/* Bridge button */}
+              <button
+                onClick={() => setShowBridgeModal(true)}
+                className="w-full px-4 py-3 bg-yellow-500/90 text-indigo-900 rounded-md hover:bg-yellow-400 transition font-medium flex items-center justify-center text-sm"
+              >
+                <Zap className="w-5 h-5 mr-2" />
+                Iniciar Ponte Automaticamente
+              </button>
+              {agentConnected && (
+                <p className="text-green-400 text-xs text-center mt-2 flex items-center justify-center">
+                  <Check className="w-3.5 h-3.5 mr-1" />
+                  Ponte ativa - interpretacao recebida
+                </p>
+              )}
             </div>
           </div>
           
@@ -603,12 +623,35 @@ export const ReadingPage: React.FC = () => {
   );
   };
 
+  // Build interpretation request for bridge modal
+  const buildBridgeRequest = (): InterpretationRequest => ({
+    cards: reading ? reading.cards.map(c => ({
+      name: c.card.name,
+      position: c.position.name,
+      isReversed: c.isReversed
+    })) : [],
+    spreadType: spreadType.id,
+    question: question || 'Qual é a revelação do universo?',
+    userName: userName,
+    birthDate: birthDate
+  });
+
   return (
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
       {renderShuffleAnimation()}
       {renderInstructions()}
       {renderUserInfoModal()}
       <BuyDeckModal isOpen={showBuyDeckModal} onClose={() => setShowBuyDeckModal(false)} />
+      <BridgeModal
+        open={showBridgeModal}
+        onClose={() => setShowBridgeModal(false)}
+        selectedAgent={selectedAgent}
+        request={buildBridgeRequest()}
+        onInterpretationReceived={(text) => {
+          setAgentConnected(true);
+          setBridgeInterpretation(text);
+        }}
+      />
       
       <div className="text-center mb-4 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-bold text-white">Realizar Leitura de Tarot</h1>
