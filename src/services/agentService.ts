@@ -1,4 +1,4 @@
-export type AgentType = 'chatgpt' | 'copilot' | 'gemini';
+export type AgentType = 'claude';
 
 export interface AgentInfo {
   id: AgentType;
@@ -8,27 +8,15 @@ export interface AgentInfo {
 }
 
 export const AGENTS: Record<AgentType, AgentInfo> = {
-  chatgpt: {
-    id: 'chatgpt',
-    name: 'ChatGPT',
-    url: 'https://chatgpt.com',
-    description: 'Agente ChatGPT (chatgpt.com)',
-  },
-  copilot: {
-    id: 'copilot',
-    name: 'Copilot',
-    url: 'https://copilot.microsoft.com',
-    description: 'Agente Copilot (copilot.microsoft.com)',
-  },
-  gemini: {
-    id: 'gemini',
-    name: 'Gemini',
-    url: 'https://gemini.google.com/app',
-    description: 'Agente Gemini (gemini.google.com/app)',
+  claude: {
+    id: 'claude',
+    name: 'Claude',
+    url: 'https://claude.ai',
+    description: 'Agente Claude (claude.ai)',
   },
 };
 
-export const AGENT_LIST: AgentInfo[] = [AGENTS.chatgpt, AGENTS.copilot, AGENTS.gemini];
+export const AGENT_LIST: AgentInfo[] = [AGENTS.claude];
 
 export interface InterpretationRequest {
   cards: Array<{
@@ -137,7 +125,7 @@ export type AgentWaitStatus =
   | { state: 'error'; message: string };
 
 /**
- * Sends a prompt to the AI API (OpenAI via Vercel serverless function)
+ * Sends a prompt to the Claude API via the Vercel serverless function
  * and returns the interpretation automatically — no copy/paste needed.
  */
 export const sendToAgentAndWait = async (

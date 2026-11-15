@@ -89,11 +89,11 @@ Deno.serve(async (req: Request) => {
 
   // GET /health
   if (req.method === "GET" && (last === "health" || last === "tarot-health")) {
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     return jsonRes({
       status: "ok",
       catalogLoaded: true,
-      aiMode: apiKey ? "openai" : "mock",
+      aiMode: apiKey ? "claude" : "mock",
       version: API_VERSION,
     });
   }
@@ -164,7 +164,7 @@ ${options?.includeCorrespondences !== false ? "Inclua as correspondencias esoter
 ${options?.includeSynthesis !== false ? "Faca uma sintese conectando todas as cartas." : ""}
 Mantenha a resposta em portugues brasileiro claro, com paragrafos curtos.`;
 
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
 
     if (!apiKey) {
       // Mock response
@@ -173,7 +173,7 @@ Mantenha a resposta em portugues brasileiro claro, com paragrafos curtos.`;
         `Receba estas imagens como espelhos simbolicos, nao como verdades absolutas. ` +
         `A progressao simbolica das cartas sugere um fluxo de energias dinamico. ` +
         `Lembre-se: o futuro indicado e uma tendencia, nao uma sentenca. ` +
-        `[Resposta mock - configure OPENAI_API_KEY para interpretacoes reais.]`;
+        `[Resposta mock - configure ANTHROPIC_API_KEY para interpretacoes reais.]`;
 
       return jsonRes({
         readingId: `mock-reading-${Date.now()}`,
@@ -201,32 +201,39 @@ Mantenha a resposta em portugues brasileiro claro, com paragrafos curtos.`;
       });
     }
 
-    // Real AI call
+    // Real Claude call
     try {
-      const selectedModel = "gpt-4o-mini";
-      const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": Deno.env.get("ANTHROPIC_VERSION") || "2026-10-21",
+      };
+      const workspaceId = Deno.env.get("ANTHROPIC_WORKSPACE_ID");
+      if (workspaceId) headers["anthropic-workspace-id"] = workspaceId;
+
+      const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify({
-          model: selectedModel,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: fullPrompt },
-          ],
-          temperature: 0.8,
+          model: Deno.env.get("ANTHROPIC_MODEL") || "claude-sonnet-5-5",
           max_tokens: 1500,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: fullPrompt }],
         }),
       });
 
-      if (!openaiResponse.ok) {
-        return errorRes("AI_PROVIDER_ERROR", `Erro da IA: ${openaiResponse.status}`, 502);
+      if (!claudeResponse.ok) {
+        const errorBody = await claudeResponse.text();
+        console.error("Claude error:", claudeResponse.status, errorBody);
+        return errorRes("AI_PROVIDER_ERROR", `Erro da Claude: ${claudeResponse.status}`, 502);
       }
 
-      const data = await openaiResponse.json();
-      const interpretation = data.choices?.[0]?.message?.content;
+      const data = await claudeResponse.json();
+      const interpretation = data.content
+        ?.filter((block: { type?: string }) => block.type === "text")
+        .map((block: { text?: string }) => block.text || "")
+        .join("\n\n")
+        .trim();
 
       if (!interpretation) {
         return errorRes("AI_EMPTY_RESPONSE", "Resposta vazia da IA.", 502);
@@ -235,7 +242,7 @@ Mantenha a resposta em portugues brasileiro claro, com paragrafos curtos.`;
       return jsonRes({
         readingId: `reading-${Date.now()}`,
         status: "completed",
-        provider: "openai",
+        provider: "claude",
         spreadId,
         interpretation: {
           introduction: "",

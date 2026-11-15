@@ -51,7 +51,7 @@ Mantenha a resposta em portugues brasileiro claro, com paragrafos curtos adequad
 export function parseInterpretationResult(
   text: string,
   readingId: string,
-  provider: 'mock' | 'openai' | 'configured',
+  provider: 'mock' | 'claude' | 'configured',
   promptVersion: string,
   catalogVersion: string,
   context: InterpretationContext,

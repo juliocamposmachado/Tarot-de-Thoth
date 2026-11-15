@@ -95,7 +95,7 @@ export class MockAIProvider implements AIProvider {
   }
 }
 
-// --- Configured AI Provider (OpenAI) ---
+// --- Configured AI Provider (Claude) ---
 
 export class ConfiguredAIProvider implements AIProvider {
   readonly name = 'configured';
@@ -168,15 +168,15 @@ export class ConfiguredAIProvider implements AIProvider {
 
 // --- Provider Factory ---
 
-let _mode: 'mock' | 'openai' | 'configured' = 'configured';
+let _mode: 'mock' | 'claude' | 'configured' = 'configured';
 let _mockProvider: MockAIProvider | null = null;
 let _configuredProvider: ConfiguredAIProvider | null = null;
 
-export function setAIMode(mode: 'mock' | 'openai' | 'configured'): void {
+export function setAIMode(mode: 'mock' | 'claude' | 'configured'): void {
   _mode = mode;
 }
 
-export function getAIMode(): 'mock' | 'openai' | 'configured' {
+export function getAIMode(): 'mock' | 'claude' | 'configured' {
   return _mode;
 }
 

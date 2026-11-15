@@ -42,7 +42,7 @@ export const ReadingPage: React.FC = () => {
   const [methodsExpanded, setMethodsExpanded] = useState<boolean>(false);
   const [userName, setUserName] = useState<string>('');
   const [birthDate, setBirthDate] = useState<string>('');
-  const [selectedAgent, setSelectedAgent] = useState<AgentType>('chatgpt');
+  const [selectedAgent, setSelectedAgent] = useState<AgentType>('claude');
   const [agentConnected, setAgentConnected] = useState(false);
   const [showBridgeModal, setShowBridgeModal] = useState(false);
   const [bridgeInterpretation, setBridgeInterpretation] = useState('');

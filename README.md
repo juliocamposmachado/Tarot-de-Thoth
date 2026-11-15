@@ -33,6 +33,20 @@ cd Tarot-de-Thoth
 npm install
 npm run dev
 ```
+
+### Configuração da Claude
+
+As interpretações são geradas no servidor pela Claude Messages API. Copie `.env.example` para `.env.local` em desenvolvimento ou configure estas variáveis no ambiente da Vercel ou do Supabase:
+
+```bash
+ANTHROPIC_API_KEY=sua_chave_da_anthropic
+ANTHROPIC_WORKSPACE_ID=seu_workspace_id
+ANTHROPIC_MODEL=claude-sonnet-5-5
+ANTHROPIC_VERSION=2026-10-21
+```
+
+`ANTHROPIC_API_KEY` nunca deve usar o prefixo `VITE_`, pois a chave precisa permanecer apenas no servidor.
+
 ## 👥 Contribuições
 Contribuições são bem-vindas! Para sugestões, abra uma issue ou envie um pull request.
 

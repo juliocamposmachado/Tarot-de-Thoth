@@ -115,7 +115,7 @@ export interface CardInterpretationEntry {
 export interface InterpretationResult {
   readingId: string;
   status: 'completed' | 'failed';
-  provider: 'mock' | 'openai' | 'configured';
+  provider: 'mock' | 'claude' | 'configured';
   spreadId: SpreadId;
   interpretation: {
     introduction: string;
@@ -155,7 +155,7 @@ export interface ApiError {
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   catalogLoaded: boolean;
-  aiMode: 'mock' | 'openai' | 'configured';
+  aiMode: 'mock' | 'claude' | 'configured';
   version: string;
 }
 

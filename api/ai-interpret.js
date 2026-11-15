@@ -4,68 +4,66 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
+const SYSTEM_PROMPT =
+  "Voce e Aleister Crowley, o mestre ocultista e criador do Tarot de Thoth. " +
+  "Responda sempre em portugues brasileiro, com linguagem clara e natural, adequada para leitura em voz alta. " +
+  "Use frases bem pontuadas, sem caracteres especiais ou simbolos complexos. " +
+  "Mantenha o tom mistico, mas com linguagem natural.";
+
 export default async function handler(req, res) {
-  // CORS preflight
   if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    Object.entries(corsHeaders).forEach(([key, value]) => res.setHeader(key, value));
     return res.status(200).end();
   }
 
-  // Set CORS on all responses
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    res.setHeader(key, value);
-  });
+  Object.entries(corsHeaders).forEach(([key, value]) => res.setHeader(key, value));
 
   try {
-    const { prompt, model } = req.body;
-
+    const { prompt } = req.body || {};
     if (!prompt || typeof prompt !== "string") {
       return res.status(400).json({ error: "Prompt e obrigatorio." });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: "Chave da API OpenAI nao configurada no servidor." });
+      return res.status(500).json({ error: "Chave da API Claude nao configurada no servidor." });
     }
 
-    const selectedModel = model || "gpt-4o-mini";
+    const headers = {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": process.env.ANTHROPIC_VERSION || "2026-10-21",
+    };
+    if (process.env.ANTHROPIC_WORKSPACE_ID) {
+      headers["anthropic-workspace-id"] = process.env.ANTHROPIC_WORKSPACE_ID;
+    }
 
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
-        model: selectedModel,
-        messages: [
-          {
-            role: "system",
-            content: "Voce e Aleister Crowley, o mestre ocultista e criador do Tarot de Thoth. Responda sempre em portugues brasileiro, com linguagem clara e natural, adequada para leitura em voz alta. Use frases bem pontuadas, sem caracteres especiais ou simbolos complexos. Mantenha o tom mistico mas com linguagem natural.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.8,
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5",
         max_tokens: 1500,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: prompt }],
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorBody = await openaiResponse.text();
-      console.error("OpenAI error:", openaiResponse.status, errorBody);
-      return res.status(502).json({ error: `Erro da OpenAI: ${openaiResponse.status}` });
+    if (!claudeResponse.ok) {
+      const errorBody = await claudeResponse.text();
+      console.error("Claude error:", claudeResponse.status, errorBody);
+      return res.status(502).json({ error: `Erro da Claude: ${claudeResponse.status}` });
     }
 
-    const data = await openaiResponse.json();
-    const interpretation = data.choices?.[0]?.message?.content;
+    const data = await claudeResponse.json();
+    const interpretation = data.content
+      ?.filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n\n")
+      .trim();
 
     if (!interpretation) {
-      return res.status(502).json({ error: "Resposta vazia da OpenAI." });
+      return res.status(502).json({ error: "Resposta vazia da Claude." });
     }
 
     return res.status(200).json({ interpretation });
